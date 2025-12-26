@@ -129,7 +129,7 @@ public void OnPluginStart()
     hCvarTimeToKick.AddChangeHook(CvarChange_Status);
     hCvarTimeToMove.AddChangeHook(CvarChange_Status);
 
-    g_Prefix         = hCvarPrefixShort.BoolValue ? "AFK" : "AFK Manager";
+    g_Prefix         = hCvarPrefixShort.BoolValue ? "[AFK] " : "[AFK Manager] ";
     g_iAdminsImmunue = hCvarAdminsImmune.IntValue;
     g_iTimeToKick    = hCvarTimeToKick.IntValue;
     g_iTimeToMove    = hCvarTimeToMove.IntValue;
@@ -421,7 +421,7 @@ Action Timer_CheckPlayer(Handle Timer, int client)
             return MoveAFKClient(client);
         }
         else if (AFKTime % AFK_WARNING_INTERVAL == 0 && (g_iTimeToMove - AFKTime) <= hCvarWarnTimeToMove.IntValue) {
-            PrintToChat(client, "%t", "Move_Warning", AFKMoveTimeleft);
+            PrintToChat(client, "%s %t", g_Prefix, "Move_Warning", AFKMoveTimeleft);
         }
     }
 
@@ -458,7 +458,7 @@ Action Timer_CheckPlayer(Handle Timer, int client)
         return KickAFKClient(client);
     }
     else if (AFKTime % AFK_WARNING_INTERVAL == 0 && (g_iTimeToKick - AFKTime) <= hCvarWarnTimeToKick.IntValue) {
-        PrintToChat(client, "%t", "Kick_Warning", AFKKickTimeleft);
+        PrintToChat(client, "%s%t", g_Prefix, "Kick_Warning", AFKKickTimeleft);
     }
     return Plugin_Continue;
 }
@@ -468,8 +468,8 @@ Action KickAFKClient(int client)
     char clientName[MAX_NAME_LENGTH];
     GetClientName(client, clientName, sizeof(clientName));
     DEBUG_LOG(client, "Kicking AFK player %N (%s)", client, clientName);
-    KickClient(client, "[%s] %t", g_Prefix, "Kick_Message");
-    PrintToChatAll("%t", "Kick_Announce", clientName);
+    KickClient(client, "%s%t", g_Prefix, "Kick_Message");
+    PrintToChatAll("%s%t", g_Prefix, "Kick_Announce", clientName);
     return Plugin_Handled;
 }
 
@@ -485,7 +485,7 @@ Action MoveAFKClient(int client)
     // Announce move to all players
     char clientName[MAX_NAME_LENGTH];
     GetClientName(client, clientName, sizeof(clientName));
-    PrintToChatAll("%t", "Move_Announce", clientName);
+    PrintToChatAll("%s%t", g_Prefix, "Move_Announce", clientName);
 
     // Reset AFK time for kick timer (starts fresh from when they were moved)
     g_iAFKTime[client] = GetTime();
@@ -638,7 +638,7 @@ void CvarChange_Status(ConVar cvar, const char[] oldvalue, const char[] newvalue
         g_iTimeToMove = StringToInt(newvalue);
     }
     else if (cvar == hCvarPrefixShort) {
-        g_Prefix = hCvarPrefixShort.BoolValue ? "AFK" : "AFK Manager";
+        g_Prefix = hCvarPrefixShort.BoolValue ? "[AFK] " : "[AFK Manager] ";
     }
     else if (cvar == hCvarAFK && StringToInt(newvalue) != 0) {
         cvar.SetInt(0);
