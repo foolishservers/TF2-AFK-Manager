@@ -4,6 +4,26 @@
 #include <sdktools>
 #include <tf2>
 
+//#define DEBUG_MODE
+#if defined DEBUG_MODE
+stock void  DEBUG_LOG(int client, const char[] format, any...)
+{
+    if (!IsValidClient(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    char buffer[512];
+    VFormat(buffer, sizeof(buffer), format, 3);
+    PrintToChat(client, "[AFK Manager DEBUG] %s", buffer);
+}
+#else
+stock void DEBUG_LOG(int client, const char[] format, any...)
+{
+    #pragma unused client, format
+}
+#endif
+
 #define AFKM_VERSION         "5.0.0"
 #define AFK_WARNING_INTERVAL 5
 #define AFK_CHECK_INTERVAL   1.0
@@ -173,7 +193,7 @@ public void OnMapEnd()
 
 public void OnClientPostAdminCheck(int client)
 {
-    if (!g_bEnabled)
+    if (!g_bEnabled || IsFakeClient(client))
     {
         return;
     }
@@ -194,12 +214,8 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
         return Plugin_Handled;
     }
 
-    // Mouse movement check (threshold of 10 to ignore micro-movements)
-    int  mouseThreshold = 10;
-    bool mouseMoved     = (mouse[0] > mouseThreshold || mouse[0] < -mouseThreshold) || (mouse[1] > mouseThreshold || mouse[1] < -mouseThreshold);
-
     // No button change AND no mouse movement = still AFK
-    if (iButtons[client] == buttons && !mouseMoved)
+    if (iButtons[client] == buttons)
     {
         return Plugin_Continue;
     }
@@ -221,6 +237,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 {
     if (g_bEnabled && g_hAFKTimer[client] != null)
     {
+        DEBUG_LOG(client, "Player %N sent chat message, resetting AFK", client);
         ResetPlayer(client, false);
     }
     return Plugin_Continue;
@@ -263,10 +280,13 @@ public Action Event_PlayerTeam(Event event, const char[] name, bool dontBroadcas
     int client = GetClientOfUserId(event.GetInt("userid"));
     if (client > 0 && IsValidClient(client) && g_hAFKTimer[client] != null)
     {
-        g_iPlayerTeam[client] = event.GetInt("team");
+        int newTeam = event.GetInt("team");
+        DEBUG_LOG(client, "Player %N changed team to %d (Spectator team: %d)", client, newTeam, g_iSpec_Team);
+        g_iPlayerTeam[client] = newTeam;
         if (g_iPlayerTeam[client] != g_iSpec_Team)
         {
             // Player joined a non-spectator team - reset AFK state completely
+            DEBUG_LOG(client, "Player %N joined active team, resetting AFK state");
             ResetObserver(client);
             ResetPlayer(client, false);
             bPlayerMoved[client] = false;    // Allow move-to-spec to work again
@@ -290,6 +310,7 @@ public Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadca
         }
         if (!IsClientObserver(client) && IsPlayerAlive(client) && GetClientHealth(client) > 0)
         {
+            DEBUG_LOG(client, "Player %N spawned, resetting AFK time", client);
             ResetObserver(client);
             // Reset AFK time on spawn to prevent false AFK from accumulated dead time
             ResetPlayer(client, false);
@@ -386,7 +407,8 @@ Action Timer_CheckPlayer(Handle Timer, int client)
         return Plugin_Continue;
     }
 
-    int  AFKTime        = (g_iAFKTime[client] >= 0) ? (Time - g_iAFKTime[client]) : 0;
+    int AFKTime = (g_iAFKTime[client] >= 0) ? (Time - g_iAFKTime[client]) : 0;
+    DEBUG_LOG(client, "Player %N AFK time: %d seconds (Move threshold: %d, Kick threshold: %d)", client, AFKTime, g_iTimeToMove, g_iTimeToKick);
 
     // Move to spectator logic (only for non-spectators/alive players who haven't been moved yet)
     // Use IsClientObserver() and IsPlayerAlive() for accurate detection instead of g_iPlayerTeam
@@ -445,6 +467,7 @@ Action KickAFKClient(int client)
 {
     char clientName[MAX_NAME_LENGTH];
     GetClientName(client, clientName, sizeof(clientName));
+    DEBUG_LOG(client, "Kicking AFK player %N (%s)", client, clientName);
     KickClient(client, "[%s] %t", g_Prefix, "Kick_Message");
     PrintToChatAll("%t", "Kick_Announce", clientName);
     return Plugin_Handled;
@@ -456,6 +479,7 @@ Action MoveAFKClient(int client)
     bPlayerMoved[client] = true;
 
     // Move client to spectator team
+    DEBUG_LOG(client, "Moving AFK player %N to spectator", client);
     ChangeClientTeam(client, g_iSpec_Team);
 
     // Announce move to all players
@@ -537,9 +561,11 @@ void SetClientAFK(int client, bool Reset = true)
 {
     if (Reset)
     {
+        DEBUG_LOG(client, "Player %N AFK status reset", client);
         ResetPlayer(client, false);
     }
     else {
+        DEBUG_LOG(client, "Player %N marked as AFK", client);
         bPlayerAFK[client] = true;
     }
 }
@@ -548,6 +574,7 @@ void InitializeAFK(int index)
 {
     if (g_hAFKTimer[index] == null)
     {
+        DEBUG_LOG(index, "Starting AFK timer for player %N (Team: %d)", index, GetClientTeam(index));
         g_iAFKTime[index]    = GetTime();
         g_iPlayerTeam[index] = GetClientTeam(index);
         g_hAFKTimer[index]   = CreateTimer(AFK_CHECK_INTERVAL, Timer_CheckPlayer, index, TIMER_REPEAT);
@@ -563,11 +590,13 @@ void InitializePlayer(int index)
     int iClientUserID = GetClientUserId(index);
     if (iClientUserID != g_iPlayerUserID[index])
     {
+        DEBUG_LOG(index, "Initializing player %N (UserID: %d)", index, iClientUserID);
         ResetAFKTimer(index);
         g_iPlayerUserID[index] = iClientUserID;
     }
     if (g_iAdminsImmunue > 0 && g_iPlayerImmunity[index] == AFKImmunity_None && CheckAdminImmunity(index))
     {
+        DEBUG_LOG(index, "Player %N has admin immunity (type: %d)", index, g_iAdminsImmunue);
         SetPlayerImmunity(index, g_iAdminsImmunue);
     }
     if (g_iPlayerImmunity[index] != AFKImmunity_Full)
@@ -621,7 +650,10 @@ void EnablePlugin()
     g_bEnabled = true;
     for (int i = 1; i <= MaxClients; i++)
     {
-        InitializePlayer(i);
+        if (IsClientInGame(i) && !IsFakeClient(i))
+        {
+            InitializePlayer(i);
+        }
     }
     int clientCount = AFK_GetClientCount();
     bKickPlayers    = (clientCount >= hCvarMinPlayersKick.IntValue);
